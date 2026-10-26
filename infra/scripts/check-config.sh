@@ -27,6 +27,7 @@ process.stdin.on("end", () => {
   }
   assert.equal(config.networks.backend.internal, true);
   assert.notEqual(config.networks.edge.internal, true);
+  assert.equal(config.networks.edge.driver_opts["com.docker.network.bridge.name"], "br-sbg-edge");
   assert.equal(config.volumes.postgres_data.name, "sbg-coffee-production-postgres");
   assert(postgres.volumes.some(volume => volume.type === "volume" &&
     volume.source === "postgres_data" && volume.target === "/var/lib/postgresql/data"));

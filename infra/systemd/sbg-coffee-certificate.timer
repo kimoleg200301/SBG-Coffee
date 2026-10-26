@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily SBG Coffee API TLS certificate renewal
+
+[Timer]
+OnCalendar=*-*-* 04:17:00
+Persistent=true
+Unit=sbg-coffee-certificate.service
+
+[Install]
+WantedBy=timers.target

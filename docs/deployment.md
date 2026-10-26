@@ -2,7 +2,7 @@
 
 Файлы доставки подготовлены для репозитория с основной веткой `main` и существующего сервера `root@b24.hyundaielevator.kz` (`amd64`). Для API предусмотрен адрес `https://sbg-api.hyundaielevator.kz` через уже работающий nginx хоста. API и установленное мобильное приложение выпускаются независимо: изменения `/api/v1` должны сохранять совместимость со старыми версиями приложения.
 
-Состояние при подготовке 2026-10-26: DNS A домена API указывает на `89.46.33.196`, AAAA отсутствует. Первичная CI-публикация в GHCR проверена; образ доступен для анонимного pull. GitHub Environment `production` создан и ограничен `main`, его переменные и `DEPLOY_KNOWN_HOSTS` заданы; `DEPLOY_SSH_KEY` ещё не настроен. На сервере отсутствуют `/opt/sbg-coffee` и сертификат домена API. Проверка сервера выполнялась только на чтение: эти файлы и инструкции не означают, что API уже доставлен или nginx изменён.
+Параметры хоста проверены 2026-10-26. DNS A домена API — `89.46.33.196`, IPv6 для vhost не используется. Пакет GHCR доступен для анонимного pull; Environment `production` ограничен веткой `main`. Фактический результат доставки проверять в Actions и `/opt/sbg-coffee/state`, готовность сервиса — через внешний `/health`. Наличие файлов конфигурации само по себе не подтверждает deployment.
 
 ## Образ и проверка локально
 
@@ -12,6 +12,7 @@
 npm run docker:build
 bash infra/scripts/check-config.sh
 bash infra/scripts/test-deploy.sh
+bash infra/scripts/test-renew-certificate.sh
 bash infra/scripts/test-compose-network.sh sbg-coffee-api:local
 bash infra/scripts/test-nginx.sh
 bash infra/scripts/container-smoke.sh sbg-coffee-api:local
@@ -54,7 +55,20 @@ PostgreSQL закреплён на `postgres:17.11-bookworm`; обновлени
 
 Compose публикует только API: `127.0.0.1:3100:3000`. API подключён к внутренней сети `backend` и обычной сети `edge`, чтобы публикация порта работала; PostgreSQL и контейнер миграций подключены только к `backend`. У PostgreSQL нет host-порта, имя volume остаётся `sbg-coffee-production-postgres`. nginx хоста проксирует в `http://127.0.0.1:3100`; порты 80/443 приложение не занимает.
 
-На Docker **до 28.0.0** localhost-published порты могут быть доступны соседям того же L2-сегмента. На этом хосте Docker `26.1.4`, поэтому bind на `127.0.0.1` сам по себе **не доказывает внешнюю изоляцию**. Перед вводом API в эксплуатацию отдельно проверить сетевые ограничения хоста/провайдера либо запланировать совместимое обновление Docker. Эта адаптация не обновляет Docker и не меняет firewall. Ограничение описано в [документации Docker о публикации портов](https://docs.docker.com/engine/network/port-publishing/).
+На Docker **до 28.0.0** сосед L2-сегмента может обойти loopback-публикацию, в том числе обратиться прямо к IP контейнера. Поэтому перед запуском на Docker `26.1.4` установить два узких правила существующего firewalld. Compose закрепляет имя только проектного edge bridge — `br-sbg-edge`; перед первой установкой убедиться, что оно свободно. Правила не требуют перезапуска Docker или reload всего firewall:
+
+```bash
+for scope in runtime permanent; do
+  firewall=(firewall-cmd)
+  if [[ "$scope" == permanent ]]; then firewall+=(--permanent); fi
+  loopback=(ipv4 raw PREROUTING 0 '!' -i lo -d 127.0.0.1/32 -p tcp --dport 3100 -m comment --comment sbg-coffee-loopback -j DROP)
+  direct=(ipv4 mangle FORWARD 0 '!' -i br-sbg-edge -o br-sbg-edge -p tcp --dport 3000 -m comment --comment sbg-coffee-direct-route -j DROP)
+  "${firewall[@]}" --direct --query-rule "${loopback[@]}" || "${firewall[@]}" --direct --add-rule "${loopback[@]}"
+  "${firewall[@]}" --direct --query-rule "${direct[@]}" || "${firewall[@]}" --direct --add-rule "${direct[@]}"
+done
+```
+
+Первое правило блокирует входящие извне пакеты к `127.0.0.1:3100`, второе — перенаправляемые пакеты к порту API на проектном edge bridge до Docker filter ACCEPT. Локальный nginx использует OUTPUT; API→PostgreSQL остаётся во внутренней сети. Проверить runtime/permanent правила, счётчики DROP тестовыми входящими пакетами к loopback и обоим IP API (edge/backend), затем локальный и внешний `/health`. Для backend должен сработать Docker DROP внутренней сети. Сам по себе внешний port scan не доказывает защиту от L2-маршрутизации. Ограничение описано в [Docker port publishing](https://docs.docker.com/engine/network/port-publishing/) и [Docker 28 release notes](https://docs.docker.com/engine/release-notes/28/#port-publishing-in-bridge-networks).
 
 DNS A должен оставаться направлен на `89.46.33.196`; не добавлять AAAA, пока IPv6 для этого vhost не настроен и не проверен. Для ACME/GHCR нужен исходящий HTTPS, а для HTTP-01 — доступ к существующему TCP 80. Домен и ACME управляются nginx/dehydrated хоста; `API_DOMAIN` и `ACME_EMAIL` в env приложения не требуются.
 
@@ -84,10 +98,10 @@ unset GHCR_READ_TOKEN
 2. Зарегистрировать `sbg-api.hyundaielevator.kz` отдельной строкой в `/home/bitrix/dehydrated/domains.txt`, сохранив существующие записи и владельца `bitrix`. Это сохраняет домен для дальнейшего renewal. Выпустить **только его** сертификат существующим dehydrated от пользователя `bitrix`:
 
    ```sh
-   su -s /bin/bash bitrix -c '/home/bitrix/dehydrated/dehydrated --cron --domain sbg-api.hyundaielevator.kz --config /home/bitrix/dehydrated/config'
+   runuser -u bitrix -- /home/bitrix/dehydrated/dehydrated --cron --domain sbg-api.hyundaielevator.kz --config /home/bitrix/dehydrated/config --hook /bin/true
    ```
 
-   Проверить успешный выпуск и наличие `fullchain.pem`, `privkey.pem`, `chain.pem` в `/home/bitrix/dehydrated/certs/sbg-api.hyundaielevator.kz/`. Проверить, что существующее расписание dehydrated обрабатывает `domains.txt`, а его renewal hook перезагружает nginx после обновления сертификатов. Не создавать параллельный ACME-клиент и не запускать выпуск для всех чужих доменов.
+   Проверить успешный выпуск и наличие `fullchain.pem`, `privkey.pem`, `chain.pem` в `/home/bitrix/dehydrated/certs/sbg-api.hyundaielevator.kz/`. Общий hook вызывает `systemctl reload nginx`, что недоступно пользователю `bitrix`; для SBG он заменяется `/bin/true`, а проверка/reload выполняются отдельно от root. Общий hook других сайтов не меняется. Не создавать параллельный ACME-клиент и не запускать выпуск для всех чужих доменов.
 
 3. Только после появления сертификата установить **HTTPS**, сохранив HTTP для renewal:
 
@@ -107,9 +121,25 @@ curl --fail --show-error https://sbg-api.hyundaielevator.kz/api/v1/catalog/produ
 
 Не использовать `-k`: внешний тест должен подтвердить DNS, сертификат и маршрут через nginx. До запуска API HTTPS может отвечать 502, даже когда сертификат и vhost корректны. Loopback-readiness deployment не подтверждает внешний HTTPS.
 
+После установки HTTPS настроить отдельное продление SBG Coffee. Из проверенного checkout установить [скрипт](../infra/scripts/renew-certificate.sh) и [systemd units](../infra/systemd/sbg-coffee-certificate.timer):
+
+```sh
+install -d -m 0700 /opt/sbg-coffee/ops
+install -m 0700 infra/scripts/renew-certificate.sh /opt/sbg-coffee/ops/renew-certificate.sh
+install -m 0644 infra/systemd/sbg-coffee-certificate.service infra/systemd/sbg-coffee-certificate.timer /etc/systemd/system/
+systemd-analyze verify /etc/systemd/system/sbg-coffee-certificate.service /etc/systemd/system/sbg-coffee-certificate.timer
+systemctl daemon-reload
+systemctl start sbg-coffee-certificate.service
+systemctl enable sbg-coffee-certificate.timer
+systemctl start sbg-coffee-certificate.timer
+systemctl list-timers sbg-coffee-certificate.timer
+```
+
+Таймер совместим с systemd219 и запускается ежедневно в 04:17 по времени хоста. Он вызывает существующий dehydrated только для домена API от `bitrix`, а nginx проверяет и перезагружает от root. SHA256 последнего успешно загруженного сертификата хранится в `state/certificate-reloaded.sha256`; после неудачного reload следующий запуск повторяет его даже без нового выпуска сертификата. Проверки ошибок и повторов: `test-renew-certificate.sh` в Linux с настоящим `flock`. Результат и ошибки: `systemctl status sbg-coffee-certificate.service`, `journalctl -u sbg-coffee-certificate.service`. Обычный deployment не переустанавливает эти host units: их обновляют отдельно после ревью.
+
 ## GitHub Environment production
 
-Environment `production` создан и ограничен веткой `main`; при желании включить required reviewers. Проверить значения и добавить недостающий SSH-ключ:
+Environment `production` создан и ограничен веткой `main`; при желании включить required reviewers. Для первой настройки создать отдельный ключ доставки, добавить его public key с опцией `restrict` в root `authorized_keys`, сохранив остальные записи, проверить SSH и передать private key только в Environment Secret. Пользовательский личный ключ не копируется. Проверить значения:
 
 | Тип | Имя | Значение |
 | --- | --- | --- |

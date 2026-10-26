@@ -33,6 +33,8 @@ const [source, destination, project, volume] = process.argv.slice(2);
 const config = JSON.parse(fs.readFileSync(source, 'utf8'));
 config.name = project;
 for (const [key, network] of Object.entries(config.networks)) network.name = `${project}-${key}`;
+// Let Docker allocate an isolated bridge; never reuse the host firewall target in tests.
+delete config.networks.edge.driver_opts['com.docker.network.bridge.name'];
 config.volumes.postgres_data.name = volume;
 // An ephemeral host port allows concurrent tests while retaining loopback binding and networks.
 config.services.api.ports[0].published = '0';

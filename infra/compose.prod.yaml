@@ -61,6 +61,8 @@ networks:
   backend:
     internal: true
   edge:
+    driver_opts:
+      com.docker.network.bridge.name: br-sbg-edge
 volumes:
   postgres_data:
     name: sbg-coffee-production-postgres

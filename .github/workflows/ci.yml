@@ -48,6 +48,7 @@ jobs:
       - run: npm run test:integration
       - run: bash infra/scripts/check-config.sh
       - run: bash infra/scripts/test-deploy.sh
+      - run: bash infra/scripts/test-renew-certificate.sh
       - run: bash infra/scripts/test-nginx.sh
       - name: Lint deployment shell scripts
         run: docker run --rm -v "$PWD:/repo" -w /repo koalaman/shellcheck:v0.10.0 infra/scripts/*.sh
