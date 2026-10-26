@@ -10,6 +10,9 @@ cat > "$test_dir/bin/docker" <<'MOCK'
 set -Eeuo pipefail
 printf '%s\n' "$*" >> "$MOCK_LOG"
 case " $* " in
+  *' pull '*)
+    [[ "$#" == 4 && "$1" == --config && "$2" == "$MOCK_REGISTRY_DIR" && "$3" == pull ]]
+    exit "${MOCK_PULL_EXIT:-0}" ;;
   *' run --rm --no-deps migrate '*) exit "${MOCK_MIGRATION_EXIT:-0}" ;;
   *' up -d --no-deps --wait --wait-timeout 120 api '*) exit "${MOCK_READINESS_EXIT:-0}" ;;
 esac
@@ -30,6 +33,9 @@ MOCK
 chmod +x "$test_dir/bin/curl" "$test_dir/bin/sleep"
 export PATH="$test_dir/bin:$PATH"
 export MOCK_LOG="$test_dir/docker.log"
+export MOCK_REGISTRY_DIR="$test_dir/server/registry"
+mkdir -p "$MOCK_REGISTRY_DIR"
+printf 'existing-project-registry-config\n' > "$MOCK_REGISTRY_DIR/config.json"
 printf 'API_IMAGE_REPOSITORY=ghcr.io/example/coffee-api\n' > "$test_dir/server/production.env"
 old_image="ghcr.io/example/coffee-api@sha256:$(printf '%064d' 1)"
 new_image="ghcr.io/example/coffee-api@sha256:$(printf '%064d' 2)"
@@ -39,6 +45,19 @@ if bash "$script_dir/deploy.sh" "$test_dir/server" "ghcr.io/other/coffee-api@sha
   echo 'Unexpected package was accepted' >&2; exit 1
 fi
 [[ ! -s "$MOCK_LOG" ]] || { echo 'Docker invoked for an untrusted image' >&2; exit 1; }
+
+export MOCK_PULL_EXIT=1
+if bash "$script_dir/deploy.sh" "$test_dir/server" "$new_image" pull-failure; then
+  echo 'Image pull failure was ignored' >&2; exit 1
+fi
+[[ $(cat "$MOCK_LOG") != *' up '* ]]
+[[ $(cat "$MOCK_LOG") != *' run '* ]]
+[[ $(cat "$test_dir/server/state/current-image") == "$old_image" ]]
+[[ $(cat "$test_dir/server/jobs/pull-failure.status") == 1 ]]
+[[ $(cat "$MOCK_REGISTRY_DIR/config.json") == existing-project-registry-config ]]
+[[ $(stat -c '%a' "$MOCK_REGISTRY_DIR") == 700 ]]
+export MOCK_PULL_EXIT=0
+: > "$MOCK_LOG"
 
 export MOCK_MIGRATION_EXIT=1
 if bash "$script_dir/deploy.sh" "$test_dir/server" "$new_image" migration-failure; then
@@ -82,4 +101,4 @@ END { exit !(migration > 0 && api > migration && host > api) }
 ' "$MOCK_LOG"
 [[ $(cat "$MOCK_LOG") != *caddy* ]]
 [[ $(cat "$MOCK_LOG") != *nginx* ]]
-echo 'Deploy image validation, migration ordering, container/host readiness failures and successful recording checks passed.'
+echo 'Deploy scoped pull, image validation, migration ordering, container/host readiness failures and successful recording checks passed.'

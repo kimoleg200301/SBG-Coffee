@@ -52,7 +52,12 @@ record() {
     >> "$deployment_dir/state/history.tsv"
 }
 record STARTED
-docker pull "$requested_image"
+# Other applications may have unrelated/stale GHCR credentials in root's config.
+# Isolate registry authentication, but keep Compose's installed CLI plugin/context.
+registry_dir="$deployment_dir/registry"
+mkdir -p "$registry_dir"
+chmod 700 "$registry_dir"
+docker --config "$registry_dir" pull "$requested_image"
 
 # Never recreate a database container during an application rollout.
 "${compose[@]}" up -d --no-recreate --wait --wait-timeout 120 postgres

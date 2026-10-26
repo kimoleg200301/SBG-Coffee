@@ -72,15 +72,18 @@ done
 
 DNS A должен оставаться направлен на `89.46.33.196`; не добавлять AAAA, пока IPv6 для этого vhost не настроен и не проверен. Для ACME/GHCR нужен исходящий HTTPS, а для HTTP-01 — доступ к существующему TCP 80. Домен и ACME управляются nginx/dehydrated хоста; `API_DOMAIN` и `ACME_EMAIL` в env приложения не требуются.
 
-Для текущего публичного пакета login не нужен. Если GHCR станет **приватным**, один раз войти на сервере от deployment-пользователя с отдельным токеном с `read:packages` и доступом только к нужному пакету (при SSO авторизовать токен). У токена не должно быть `write:packages`/`delete:packages`. Пароль вводить через `--password-stdin`, не сохранять в командной строке/истории:
+Для текущего публичного пакета login не нужен. `deploy.sh` загружает образ через отдельный каталог `/opt/sbg-coffee/registry` с правами `700`: глобальные credentials других приложений не используются и не меняются. Обычный Compose работает с установленным на хосте plugin/context; при первичной настройке проверить, что обычный `docker image inspect` видит digest, скачанный с `--config /opt/sbg-coffee/registry`.
+
+Если GHCR станет **приватным**, один раз войти в эту проектную конфигурацию от deployment-пользователя с отдельным токеном с `read:packages` и доступом только к нужному пакету (при SSO авторизовать токен). У токена не должно быть `write:packages`/`delete:packages`. Пароль вводить через `--password-stdin`, не сохранять в командной строке/истории:
 
 ```sh
 read -r -s GHCR_READ_TOKEN
-printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io --username YOUR_READ_ONLY_ACCOUNT --password-stdin
+install -d -m 0700 /opt/sbg-coffee/registry
+printf '%s' "$GHCR_READ_TOKEN" | docker --config /opt/sbg-coffee/registry login ghcr.io --username YOUR_READ_ONLY_ACCOUNT --password-stdin
 unset GHCR_READ_TOKEN
 ```
 
-Использовать Docker credential helper либо ограничить доступ к `~/.docker/config.json`. Publisher `GITHUB_TOKEN` на сервер не передаётся.
+Использовать Docker credential helper либо ограничить доступ к `/opt/sbg-coffee/registry/config.json`. Publisher `GITHUB_TOKEN` на сервер не передаётся.
 
 ## Подготовка nginx и сертификата
 
