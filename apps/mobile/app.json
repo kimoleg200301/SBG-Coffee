@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "SBG Coffee",
+    "slug": "sbg-coffee",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "sbgcoffee",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/app/icon.png",
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.sbgcoffee.app" },
+    "android": {
+      "package": "com.sbgcoffee.app",
+      "adaptiveIcon": { "foregroundImage": "./assets/app/icon.png", "backgroundColor": "#FFF4E8" }
+    },
+    "web": { "bundler": "metro", "output": "static", "favicon": "./assets/app/icon.png" },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        { "image": "./assets/app/icon.png", "imageWidth": 120, "backgroundColor": "#FFF4E8" }
+      ],
+      "expo-font"
+    ],
+    "experiments": { "typedRoutes": true }
+  }
+}

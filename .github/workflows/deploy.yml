@@ -1,0 +1,84 @@
+name: Deploy API to production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Exact ghcr.io/owner/repository-api@sha256:... from the publish artifact"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sbg-coffee-production-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: production
+    env:
+      DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      REQUESTED_IMAGE: ${{ inputs.image }}
+      EXPECTED_REPOSITORY: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Validate the immutable reference and server settings
+        run: |
+          expected="ghcr.io/${EXPECTED_REPOSITORY,,}-api"
+          [[ "$REQUESTED_IMAGE" == "$expected@sha256:"* ]] && [[ "${REQUESTED_IMAGE#"$expected@sha256:"}" =~ ^[a-f0-9]{64}$ ]] || { echo 'Unexpected package or invalid digest' >&2; exit 1; }
+          [[ "$DEPLOY_HOST" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || { echo 'Invalid DEPLOY_HOST' >&2; exit 1; }
+          [[ "$DEPLOY_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo 'Invalid DEPLOY_USER' >&2; exit 1; }
+          [[ "$DEPLOY_PORT" =~ ^[0-9]{1,5}$ ]] && ((10#$DEPLOY_PORT > 0 && 10#$DEPLOY_PORT <= 65535)) || { echo 'Invalid DEPLOY_PORT' >&2; exit 1; }
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9/_-]+$ ]] || { echo 'DEPLOY_PATH must be an absolute path without spaces' >&2; exit 1; }
+      - name: Configure SSH with the independently verified host key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_SSH_KEY" && test -n "$DEPLOY_KNOWN_HOSTS"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/deploy-key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/deploy-key" "$HOME/.ssh/known_hosts"
+      - name: Transfer release configuration and start a persistent server job
+        run: |
+          set -Eeuo pipefail
+          run_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ssh_options=(-i "$HOME/.ssh/deploy-key" -p "$DEPLOY_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=15)
+          tar -czf infra-release.tgz infra
+          ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "test -f '$DEPLOY_PATH/production.env' && mkdir -p '$DEPLOY_PATH/releases/$run_id' '$DEPLOY_PATH/jobs'"
+          scp -i "$HOME/.ssh/deploy-key" -P "$DEPLOY_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" infra-release.tgz "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/releases/$run_id/infra-release.tgz"
+          ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "tar -xzf '$DEPLOY_PATH/releases/$run_id/infra-release.tgz' -C '$DEPLOY_PATH/releases/$run_id' && rm '$DEPLOY_PATH/releases/$run_id/infra-release.tgz' && { nohup bash '$DEPLOY_PATH/releases/$run_id/infra/scripts/deploy.sh' '$DEPLOY_PATH' '$REQUESTED_IMAGE' '$run_id' > '$DEPLOY_PATH/jobs/$run_id.log' 2>&1 < /dev/null & }"
+      - name: Wait for the server job and record the result
+        run: |
+          set -Eeuo pipefail
+          run_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ssh_options=(-i "$HOME/.ssh/deploy-key" -p "$DEPLOY_PORT" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=15)
+          for attempt in $(seq 1 180); do
+            status=$(ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "cat '$DEPLOY_PATH/jobs/$run_id.status' 2>/dev/null || true")
+            if [[ "$status" =~ ^[0-9]+$ ]]; then
+              ssh "${ssh_options[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "tail -n 100 '$DEPLOY_PATH/jobs/$run_id.log'"
+              if [[ "$status" == 0 ]]; then
+                printf 'Deployed `%s`\nServer job: `%s`\n' "$REQUESTED_IMAGE" "$run_id" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              echo "Server deployment failed (exit $status). See its log; the schema is never automatically rolled back." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "Observer timed out. The server job is still independent; inspect $DEPLOY_PATH/jobs/$run_id.log before retrying." >&2
+          exit 1
+      - name: Remove runner SSH credentials
+        if: always()
+        run: rm -f "$HOME/.ssh/deploy-key" "$HOME/.ssh/known_hosts"

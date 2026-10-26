@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Category {
+  coffee
+  tea
+  seasonal
+}
+
+enum ProductImage {
+  americano
+  cappuccino
+  latte
+  chocolate
+  pumpkin
+  lavender
+}
+
+model Product {
+  id          String           @id
+  name        String
+  description String
+  category    Category
+  image       ProductImage
+  tag         String?
+  sortOrder   Int              @default(0)
+  available   Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  variants    ProductVariant[]
+
+  @@index([available, sortOrder])
+}
+
+model ProductVariant {
+  id        String  @id
+  productId String
+  label     String
+  volumeMl  Int
+  priceKzt  Int
+  sortOrder Int     @default(0)
+  available Boolean @default(true)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([productId, available, sortOrder])
+}

@@ -1,0 +1,49 @@
+{
+  "name": "sbg-coffee",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.14.0 <23",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "start": "npm run mobile",
+    "mobile": "npm run start --workspace @sbg/mobile --",
+    "android": "npm run android --workspace @sbg/mobile --",
+    "ios": "npm run ios --workspace @sbg/mobile --",
+    "web": "npm run web --workspace @sbg/mobile --",
+    "api": "npm run build:contracts && npm run dev --workspace @sbg/api",
+    "build:contracts": "npm run build --workspace @sbg/contracts",
+    "build:api": "npm run build:contracts && npm run build --workspace @sbg/api",
+    "db:up": "docker compose -f infra/compose.dev.yaml up -d --wait",
+    "db:stop": "docker compose -f infra/compose.dev.yaml stop",
+    "prisma:generate": "npm run prisma:generate --workspace @sbg/api",
+    "db:migrate": "npm run db:migrate --workspace @sbg/api",
+    "db:seed": "npm run build:api && npm run db:seed --workspace @sbg/api",
+    "db:status": "npm run db:status --workspace @sbg/api",
+    "bootstrap": "npm run build:contracts && npm run prisma:generate",
+    "typecheck": "npm run build:contracts && npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:integration": "npm run test:integration --workspace @sbg/api",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "export:web": "npm run export:web --workspace @sbg/mobile --",
+    "export:native": "npm run export:native --workspace @sbg/mobile --",
+    "docker:build": "docker build --file apps/api/Dockerfile --tag sbg-coffee-api:local ."
+  },
+  "overrides": {
+    "@nestjs/platform-express": {
+      "multer": "2.5.0"
+    },
+    "@nestjs/swagger": {
+      "js-yaml": "5.5.0"
+    },
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.2"
+    }
+  }
+}

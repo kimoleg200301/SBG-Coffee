@@ -1,0 +1,131 @@
+name: CI and publish API
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17.11-bookworm
+        env:
+          POSTGRES_USER: sbg
+          POSTGRES_PASSWORD: ci-test-only
+          POSTGRES_DB: sbg_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sbg -d sbg_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://sbg:ci-test-only@127.0.0.1:5432/sbg_test?schema=public
+      EXPO_PUBLIC_CATALOG_SOURCE: mock
+      CI: "true"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build:api
+      - run: npm run test:integration
+      - run: bash infra/scripts/check-config.sh
+      - run: bash infra/scripts/test-deploy.sh
+      - name: Lint deployment shell scripts
+        run: docker run --rm -v "$PWD:/repo" -w /repo koalaman/shellcheck:v0.10.0 infra/scripts/*.sh
+      - name: Validate Actions workflow syntax
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color -shellcheck= .github/workflows/ci.yml .github/workflows/deploy.yml
+      - name: Export mobile bundles
+        run: |
+          npm run export:web --workspace @sbg/mobile
+          npm run export:native --workspace @sbg/mobile
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: false
+          load: true
+          tags: sbg-coffee-api:ci
+          cache-from: type=gha,scope=api-ci
+          cache-to: type=gha,mode=max,scope=api-ci
+      - name: Exercise the release image with an isolated PostgreSQL
+        run: bash infra/scripts/container-smoke.sh sbg-coffee-api:ci
+
+  publish:
+    needs: [checks, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Select package and server architecture
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+          API_PLATFORM: ${{ vars.API_PLATFORM || 'linux/amd64' }}
+        run: |
+          case "$API_PLATFORM" in linux/amd64|linux/arm64) ;; *) echo 'API_PLATFORM must be linux/amd64 or linux/arm64' >&2; exit 1;; esac
+          echo "name=ghcr.io/${REPOSITORY,,}-api" >> "$GITHUB_OUTPUT"
+          echo "platform=$API_PLATFORM" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        id: build
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          platforms: ${{ steps.image.outputs.platform }}
+          push: true
+          tags: ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=api-publish
+          cache-to: type=gha,mode=max,scope=api-publish
+      - name: Preserve the exact deployable image reference
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          printf '%s@%s\n' "$IMAGE_NAME" "$IMAGE_DIGEST" > api-image.txt
+          printf 'Published API image: `%s@%s`\n' "$IMAGE_NAME" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: api-image-${{ github.sha }}
+          path: api-image.txt
+          retention-days: 90
