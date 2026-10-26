@@ -27,7 +27,7 @@ API слушает `0.0.0.0:3000`, PostgreSQL для разработки пуб
 | Android Emulator | `http://10.0.2.2:3000` | API запущен на компьютере |
 | Android по USB | `http://localhost:3000` | `adb reverse tcp:3000 tcp:3000` |
 | Телефон по Wi-Fi | `http://<LAN-IP-компьютера>:3000` | Одна сеть, firewall разрешает порт 3000 |
-| Production | `https://<домен-API>` | DNS + Caddy + валидный TLS |
+| Production | `https://sbg-api.hyundaielevator.kz` | DNS + nginx хоста + валидный TLS; [подготовка](deployment.md) |
 
 Для dev-сборок используется локальный HTTP; production должен использовать HTTPS. На iOS доступ к LAN может требовать разрешения локальной сети. Android debug допускает cleartext через собственный debug manifest; release не следует ослаблять ради локальной разработки. CORS относится к web: добавьте точный origin Expo web (обычно `http://localhost:8081`) в `CORS_ORIGINS`, разделив несколько origin запятой. CORS не является авторизацией.
 

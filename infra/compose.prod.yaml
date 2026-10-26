@@ -40,6 +40,12 @@ services:
     restart: "no"
   api:
     <<: *api
+    ports:
+      - "127.0.0.1:3100:3000"
+    # Host nginx reaches the published port through the non-internal network.
+    networks:
+      - backend
+      - edge
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,32 +57,6 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 12
-  caddy:
-    image: caddy:2.10.2-alpine
-    environment:
-      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN to your API hostname}
-      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - backend
-      - edge
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    logging: *logging
 networks:
   backend:
     internal: true
@@ -84,7 +64,3 @@ networks:
 volumes:
   postgres_data:
     name: sbg-coffee-production-postgres
-  caddy_data:
-    name: sbg-coffee-production-caddy-data
-  caddy_config:
-    name: sbg-coffee-production-caddy-config

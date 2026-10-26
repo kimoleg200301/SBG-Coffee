@@ -20,7 +20,7 @@ trap finish EXIT
 # A disconnected observer must not interrupt an in-flight database migration.
 trap '' HUP
 
-for executable in docker flock; do
+for executable in docker flock curl; do
   command -v "$executable" >/dev/null || { echo "Missing command: $executable" >&2; exit 2; }
 done
 exec 9>"$deployment_dir/deploy.lock"
@@ -75,11 +75,24 @@ if ! "${compose[@]}" up -d --no-deps --wait --wait-timeout 120 api; then
   echo "Last successful image: ${previous_image:-none}" >&2
   exit 1
 fi
-if ! "${compose[@]}" up -d --no-deps --wait --wait-timeout 120 caddy; then
-  record PROXY_FAILED
-  echo 'API is ready, but the HTTPS proxy is not healthy; inspect Caddy logs.' >&2
+# Container health alone does not prove that host nginx can reach the published port.
+# Keep options compatible with the existing CentOS curl; retry in Bash with a bound.
+loopback_ready=false
+for attempt in 1 2 3 4 5 6; do
+  if curl --noproxy '*' --fail --silent --show-error --connect-timeout 5 --max-time 5 \
+    --output /dev/null http://127.0.0.1:3100/health; then
+    loopback_ready=true
+    break
+  fi
+  [[ "$attempt" == 6 ]] || sleep 2
+done
+if [[ "$loopback_ready" != true ]]; then
+  record LOOPBACK_READINESS_FAILED
+  echo 'API container is healthy, but host nginx cannot reach 127.0.0.1:3100/health.' >&2
+  echo "Last successful image: ${previous_image:-none}" >&2
   exit 1
 fi
+# Host nginx and certificate renewal are configured separately, never by a release.
 if [[ -n "$previous_image" && "$previous_image" != "$requested_image" ]]; then
   printf '%s\n' "$previous_image" > "$deployment_dir/state/previous-image"
 fi

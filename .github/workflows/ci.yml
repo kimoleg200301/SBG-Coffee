@@ -48,6 +48,7 @@ jobs:
       - run: npm run test:integration
       - run: bash infra/scripts/check-config.sh
       - run: bash infra/scripts/test-deploy.sh
+      - run: bash infra/scripts/test-nginx.sh
       - name: Lint deployment shell scripts
         run: docker run --rm -v "$PWD:/repo" -w /repo koalaman/shellcheck:v0.10.0 infra/scripts/*.sh
       - name: Validate Actions workflow syntax
@@ -76,6 +77,8 @@ jobs:
           cache-to: type=gha,mode=max,scope=api-ci
       - name: Exercise the release image with an isolated PostgreSQL
         run: bash infra/scripts/container-smoke.sh sbg-coffee-api:ci
+      - name: Verify production Compose host port reachability
+        run: bash infra/scripts/test-compose-network.sh sbg-coffee-api:ci
 
   publish:
     needs: [checks, docker]
