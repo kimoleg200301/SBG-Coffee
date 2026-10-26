@@ -40,7 +40,7 @@ describe('HTTP catalogue and persistent offline cache', () => {
     let called = false;
     const fetcher: typeof fetch = async (url, options) => {
       called = true;
-      assert.equal(url, `${baseUrl}/api/v1/catalog/products`);
+      assert.equal(url, `${baseUrl}/api/v2/catalog/products`);
       assert.equal(options?.cache, 'no-store');
       return new Response(JSON.stringify(expected));
     };
@@ -59,7 +59,7 @@ describe('HTTP catalogue and persistent offline cache', () => {
     const storage = memoryStorage();
     const response = await body();
     const key = catalogCacheKey(baseUrl);
-    await storage.setItem(key, JSON.stringify({ version: 1, receivedAt: now, response }));
+    await storage.setItem(key, JSON.stringify({ version: 2, receivedAt: now, response }));
     for (const fetcher of [
       async () => { throw new TypeError('Network request failed'); },
       async () => new Response('unavailable', { status: 503 }),
@@ -79,14 +79,35 @@ describe('HTTP catalogue and persistent offline cache', () => {
     const key = catalogCacheKey(baseUrl);
     for (const raw of [
       'not json',
-      JSON.stringify({ version: 1, receivedAt: now + 1, response }),
-      JSON.stringify({ version: 1, receivedAt: now - CATALOG_CACHE_MAX_AGE_MS - 1, response }),
-      JSON.stringify({ version: 2, receivedAt: now, response }),
-      JSON.stringify({ version: 1, receivedAt: now, response: { products: [] } }),
+      JSON.stringify({ version: 2, receivedAt: now + 1, response }),
+      JSON.stringify({ version: 2, receivedAt: now - CATALOG_CACHE_MAX_AGE_MS - 1, response }),
+      JSON.stringify({ version: 1, receivedAt: now, response }),
+      JSON.stringify({ version: 2, receivedAt: now, response: { products: [] } }),
     ]) {
       await storage.setItem(key, raw);
       assert.equal(await loadCatalogCache(storage, key, now), null);
     }
+  });
+
+  it('isolates v2 cache from the installed v1 client and rejects v1 payloads', async () => {
+    const storage = memoryStorage();
+    const response = await body();
+    const legacyResponse = {
+      ...response,
+      products: response.products.map(({ addons: _addons, ...product }) => product),
+    };
+    const oldKey = `sbg-coffee:catalog:v1:api:${encodeURIComponent(baseUrl)}`;
+    const oldCache = JSON.stringify({ version: 1, receivedAt: now, response: legacyResponse });
+    await storage.setItem(oldKey, oldCache);
+    const repository = createHttpCatalogRepository({
+      apiUrl: baseUrl, storage, now: () => now,
+      fetcher: async () => new Response(JSON.stringify(legacyResponse)),
+    });
+    assert.notEqual(repository.cacheKey, oldKey);
+    assert.equal(await repository.loadCached?.(), null);
+    await assert.rejects(repository.list(), /Формат каталога/);
+    assert.equal(storage.values.get(oldKey), oldCache);
+    assert.equal(await repository.loadCached?.(), null);
   });
 
   it('returns server data when optional cache storage fails', async () => {

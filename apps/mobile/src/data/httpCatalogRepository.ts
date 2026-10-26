@@ -1,4 +1,4 @@
-import { catalogResponseSchema } from '@sbg/contracts';
+import { catalogV2ResponseSchema } from '@sbg/contracts';
 import type { CatalogRepository } from './repositories';
 import type { KeyValueStorage } from './localCommerceRepositories';
 import { catalogCacheKey, loadCatalogCache } from './catalogCache';
@@ -28,7 +28,7 @@ export function createHttpCatalogRepository({
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const response = await fetcher(`${baseUrl}/api/v1/catalog/products`, {
+        const response = await fetcher(`${baseUrl}/api/v2/catalog/products`, {
           headers: { Accept: 'application/json' },
           signal: controller.signal,
           // Browser HTTP cache must not turn an old response into a fresh price check.
@@ -41,11 +41,11 @@ export function createHttpCatalogRepository({
         } catch {
           throw new Error('Сервер вернул некорректный каталог. Попробуйте обновить меню.');
         }
-        const parsed = catalogResponseSchema.safeParse(body);
+        const parsed = catalogV2ResponseSchema.safeParse(body);
         if (!parsed.success) throw new Error('Формат каталога не поддерживается. Попробуйте обновить приложение.');
         // Storage failure does not invalidate an otherwise valid server response.
         await storage.setItem(cacheKey, JSON.stringify({
-          version: 1,
+          version: 2,
           receivedAt: now(),
           response: parsed.data,
         })).catch(() => {});

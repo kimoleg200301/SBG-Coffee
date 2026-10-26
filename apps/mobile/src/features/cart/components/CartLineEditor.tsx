@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { formatVariant } from '@/domain/catalog';
 import { MAX_ITEM_QUANTITY, type ResolvedCartLine } from '@/domain/cart';
 import { OrderLineSummary } from '@/features/orders/components/OrderLineSummary';
 import { AppText, QuantityStepper } from '@/shared/ui';
@@ -18,6 +19,8 @@ export function CartLineEditor({
   onQuantityChange,
   onRemove,
 }: CartLineEditorProps) {
+  const description = [line.product.name, formatVariant(line.variant.label, line.variant.volumeMl),
+    ...line.addons.map((addon) => addon.name)].join(', ');
   return (
     <View style={styles.item}>
       <OrderLineSummary
@@ -25,13 +28,14 @@ export function CartLineEditor({
         image={line.product.image}
         variantLabel={line.variant.label}
         volumeMl={line.variant.volumeMl}
-        unitPriceKzt={line.variant.priceKzt}
+        unitPriceKzt={line.unitPriceKzt}
+        addons={line.addons}
         quantity={line.quantity}
       />
       <View style={styles.controls}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Убрать ${line.product.name}, ${line.variant.volumeMl} мл из заказа`}
+          accessibilityLabel={`Убрать ${description} из заказа`}
           disabled={disabled}
           accessibilityState={{ disabled: !!disabled }}
           onPress={onRemove}
@@ -44,7 +48,7 @@ export function CartLineEditor({
           min={1}
           max={MAX_ITEM_QUANTITY}
           disabled={disabled}
-          label={`${line.product.name}, ${line.variant.volumeMl} мл`}
+          label={description}
           onChange={onQuantityChange}
         />
       </View>

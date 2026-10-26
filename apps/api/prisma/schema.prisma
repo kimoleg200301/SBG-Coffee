@@ -50,3 +50,39 @@ model ProductVariant {
 
   @@index([productId, available, sortOrder])
 }
+
+// Piece-based items are separate so previous API releases can still read Product.
+model Dessert {
+  id          String           @id
+  name        String
+  description String
+  tag         String?
+  sortOrder   Int              @default(0)
+  available   Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  variants    DessertVariant[]
+
+  @@index([available, sortOrder])
+}
+
+model DessertVariant {
+  id        String  @id
+  dessertId String
+  label     String
+  priceKzt  Int
+  sortOrder Int     @default(0)
+  available Boolean @default(true)
+  dessert   Dessert @relation(fields: [dessertId], references: [id], onDelete: Restrict)
+
+  @@index([dessertId, available, sortOrder])
+}
+
+// One portion of any available addition is permitted for every drink.
+model Addon {
+  id        String  @id
+  name      String
+  priceKzt  Int
+  sortOrder Int     @default(0)
+  available Boolean @default(true)
+}

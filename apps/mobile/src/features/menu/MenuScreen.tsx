@@ -9,6 +9,7 @@ import {
   CATEGORIES,
   filterProducts,
   formatPrice,
+  formatVariant,
   type Category,
   type Product,
 } from '@/domain/catalog';
@@ -16,13 +17,13 @@ import { useCatalog } from '@/features/catalog/useCatalog';
 import { CatalogStatus } from '@/features/catalog/CatalogStatus';
 import { CartButton } from '@/features/cart/CartButton';
 import { images } from '@/shared/assets';
-import { AppText, Button, EmptyState, IconButton, Screen, ScreenHeader } from '@/shared/ui';
+import { AppText, Button, EmptyState, IconButton, ProductImage, Screen, ScreenHeader } from '@/shared/ui';
 import { colors, fonts } from '@/theme';
 
 import { ProductDetails } from './ProductDetails';
 
 function readCategory(value: string | string[] | undefined): Category {
-  return value === 'tea' || value === 'seasonal' ? value : 'coffee';
+  return value === 'tea' || value === 'seasonal' || value === 'dessert' ? value : 'coffee';
 }
 
 export function MenuScreen() {
@@ -89,8 +90,8 @@ export function MenuScreen() {
         <View style={styles.searchBox}>
           <Search size={20} color={colors.muted} strokeWidth={1.7} />
           <TextInput
-            accessibilityLabel="Поиск напитков"
-            placeholder="Найти любимый напиток"
+            accessibilityLabel="Поиск по меню"
+            placeholder="Найти в меню"
             placeholderTextColor={colors.muted}
             value={query}
             onChangeText={(value) => router.setParams({ q: value })}
@@ -146,7 +147,7 @@ export function MenuScreen() {
         ) : catalog.isError && !catalog.data ? (
           <EmptyState
             title="Меню пока недоступно"
-            description="Не получилось загрузить напитки. Попробуем ещё раз?"
+            description="Не получилось загрузить меню. Попробуем ещё раз?"
             action={<Button label="Повторить" onPress={() => void catalog.refetch()} />}
           />
         ) : products.length ? (
@@ -163,7 +164,7 @@ export function MenuScreen() {
           <EmptyState
             title={
               query.trim()
-                ? 'Напиток не нашёлся'
+                ? 'Ничего не нашлось'
                 : favoritesOnly
                   ? 'Любимое — всегда рядом'
                   : category === 'tea'
@@ -174,10 +175,10 @@ export function MenuScreen() {
               query.trim()
                 ? 'Попробуйте другое название или выберите категорию.'
                 : favoritesOnly
-                  ? 'Откройте напиток и нажмите на сердечко — он появится здесь.'
+                  ? 'Откройте товар и нажмите на сердечко — он появится здесь.'
                   : category === 'tea'
                     ? 'Чайное меню ещё готовится. А пока выберите кофе или сезонный напиток.'
-                    : 'В этой категории пока нет напитков. Загляните в другие разделы меню.'
+                    : 'В этой категории пока нет товаров. Загляните в другие разделы меню.'
             }
             action={
               <Button
@@ -234,9 +235,8 @@ function ProductRow({ product, onPress }: ProductRowProps) {
       onPress={onPress}
       style={({ pressed }) => [styles.productRow, pressed && styles.pressed]}
     >
-      <Image
-        source={images[product.image]}
-        contentFit="cover"
+      <ProductImage
+        image={product.image}
         style={styles.productImage}
         accessibilityLabel={product.name}
       />
@@ -246,7 +246,7 @@ function ProductRow({ product, onPress }: ProductRowProps) {
           {product.variants.map((variant) => (
             <View key={variant.id} style={styles.priceVariant}>
               <AppText style={styles.volume}>
-                {variant.label} · {variant.volumeMl} мл
+                {formatVariant(variant.label, variant.volumeMl)}
               </AppText>
               <AppText style={styles.price}>{formatPrice(variant.priceKzt)}</AppText>
             </View>
@@ -305,8 +305,8 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
   productName: { fontFamily: fonts.bold, fontSize: 16, lineHeight: 22 },
-  prices: { flexDirection: 'row', gap: 12 },
-  priceVariant: { flex: 1, gap: 5 },
+  prices: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  priceVariant: { minWidth: 82, gap: 5 },
   volume: { color: colors.muted, fontSize: 10, lineHeight: 14 },
   price: { fontFamily: fonts.bold, fontSize: 14, lineHeight: 19 },
   seasonalPromo: {

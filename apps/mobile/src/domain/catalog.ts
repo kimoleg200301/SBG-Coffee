@@ -1,12 +1,18 @@
-export type Category = 'coffee' | 'tea' | 'seasonal';
+export type Category = 'coffee' | 'tea' | 'seasonal' | 'dessert';
 
 export type ProductImageKey =
-  'americano' | 'cappuccino' | 'latte' | 'chocolate' | 'pumpkin' | 'lavender';
+  'americano' | 'cappuccino' | 'latte' | 'chocolate' | 'pumpkin' | 'lavender' | 'tea' | 'dessert';
 
 export interface ProductVariant {
   readonly id: string;
   readonly label: string;
-  readonly volumeMl: number;
+  readonly volumeMl: number | null;
+  readonly priceKzt: number;
+}
+
+export interface Addon {
+  readonly id: string;
+  readonly name: string;
   readonly priceKzt: number;
 }
 
@@ -17,6 +23,7 @@ export interface Product {
   readonly category: Category;
   readonly image: ProductImageKey;
   readonly variants: readonly ProductVariant[];
+  readonly addons: readonly Addon[];
   readonly tag?: string;
 }
 
@@ -24,6 +31,7 @@ export const CATEGORIES: readonly { readonly id: Category; readonly label: strin
   { id: 'coffee', label: 'Кофе' },
   { id: 'tea', label: 'Чай' },
   { id: 'seasonal', label: 'Сезонное' },
+  { id: 'dessert', label: 'Десерты' },
 ];
 
 interface ProductFilters {
@@ -67,4 +75,9 @@ export function formatPrice(priceKzt: number): string {
   }
 
   return `${priceFormatter.format(priceKzt).replace(/[\u00a0\u202f]/g, ' ')} ₸`;
+}
+
+/** Desserts use a flavour label without an invented drink volume. */
+export function formatVariant(label: string, volumeMl: number | null): string {
+  return volumeMl === null ? label : `${label} · ${volumeMl} мл`;
 }

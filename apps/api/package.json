@@ -8,12 +8,13 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src prisma test",
-    "test": "node --import tsx --test test/config.test.ts test/catalog.test.ts test/health.test.ts",
-    "test:integration": "node --env-file-if-exists=.env --import tsx --test test/catalog.integration.test.ts",
+    "test": "node --import tsx --test test/config.test.ts test/catalog.test.ts test/health.test.ts test/menu-import.test.ts",
+    "test:integration": "node --env-file-if-exists=.env --import tsx --test test/catalog.integration.test.ts test/menu.integration.test.ts",
     "prisma:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "node --env-file-if-exists=.env dist/prisma/seed.js",
-    "db:status": "prisma migrate status"
+    "db:status": "prisma migrate status",
+    "db:import-menu": "node --env-file-if-exists=.env dist/prisma/import-menu.js"
   },
   "dependencies": {
     "@nestjs/common": "11.2.8",

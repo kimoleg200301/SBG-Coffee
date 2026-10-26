@@ -1,4 +1,4 @@
-import type { Product, ProductVariant } from './catalog';
+import type { Addon, Product, ProductVariant } from './catalog';
 
 export const MAX_ITEM_QUANTITY = 20;
 export const MAX_COMMENT_LENGTH = 300;
@@ -8,6 +8,8 @@ export interface CartItem {
   readonly productId: string;
   readonly variantId: string;
   readonly quantity: number;
+  /** Missing only in legacy drafts; it means no additions. */
+  readonly addonIds?: readonly string[];
 }
 
 export interface CartDraft {
@@ -20,6 +22,8 @@ export interface ResolvedCartLine {
   readonly key: string;
   readonly product: Product;
   readonly variant: ProductVariant;
+  readonly addons: readonly Addon[];
+  readonly unitPriceKzt: number;
   readonly quantity: number;
   readonly totalKzt: number;
 }
@@ -35,8 +39,25 @@ function validId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
 }
 
-export function cartItemKey(productId: string, variantId: string): string {
-  return JSON.stringify([productId, variantId]);
+/** Reject duplicate portions, and normalize order so the same selection is one line. */
+export function canonicalAddonIds(addonIds: readonly string[] = []): readonly string[] {
+  if (!Array.isArray(addonIds) || addonIds.length > 20 || addonIds.some((id) => !validId(id)))
+    throw new Error('Не удалось прочитать добавки.');
+  if (new Set(addonIds).size !== addonIds.length)
+    throw new Error('Каждую добавку можно выбрать только один раз.');
+  return [...addonIds].sort();
+}
+
+export function cartItemKey(
+  productId: string,
+  variantId: string,
+  addonIds: readonly string[] = [],
+): string {
+  return JSON.stringify([productId, variantId, canonicalAddonIds(addonIds)]);
+}
+
+function copyCartItem(item: CartItem): CartItem {
+  return { ...item, addonIds: canonicalAddonIds(item.addonIds) };
 }
 
 function assertQuantity(quantity: number, allowZero = false): void {
@@ -56,11 +77,11 @@ export function validateCartItems(items: readonly CartItem[]): void {
   const keys = new Set<string>();
   for (const item of items) {
     if (!item || !validId(item.productId) || !validId(item.variantId)) {
-      throw new Error('В корзине есть неизвестный напиток.');
+      throw new Error('В корзине есть неизвестный товар.');
     }
     assertQuantity(item.quantity);
-    const key = cartItemKey(item.productId, item.variantId);
-    if (keys.has(key)) throw new Error('В корзине повторяется один и тот же напиток.');
+    const key = cartItemKey(item.productId, item.variantId, item.addonIds);
+    if (keys.has(key)) throw new Error('В корзине повторяется одна и та же позиция.');
     keys.add(key);
   }
 }
@@ -90,21 +111,23 @@ export function addCartItem(
   productId: string,
   variantId: string,
   quantity = 1,
+  addonIds: readonly string[] = [],
 ): readonly CartItem[] {
   validateCartItems(items);
-  if (!validId(productId) || !validId(variantId)) throw new Error('Выберите напиток и объём.');
+  if (!validId(productId) || !validId(variantId)) throw new Error('Выберите товар и вариант.');
   assertQuantity(quantity);
-  const key = cartItemKey(productId, variantId);
-  const existing = items.find((item) => cartItemKey(item.productId, item.variantId) === key);
+  const selectedAddonIds = canonicalAddonIds(addonIds);
+  const key = cartItemKey(productId, variantId, selectedAddonIds);
+  const existing = items.find((item) => cartItemKey(item.productId, item.variantId, item.addonIds) === key);
   const nextQuantity = (existing?.quantity ?? 0) + quantity;
   assertQuantity(nextQuantity);
   const next = existing
     ? items.map((item) =>
-        cartItemKey(item.productId, item.variantId) === key
-          ? { ...item, quantity: nextQuantity }
-          : { ...item },
+        cartItemKey(item.productId, item.variantId, item.addonIds) === key
+          ? { ...copyCartItem(item), quantity: nextQuantity }
+          : copyCartItem(item),
       )
-    : [...items.map((item) => ({ ...item })), { productId, variantId, quantity }];
+    : [...items.map(copyCartItem), { productId, variantId, quantity, addonIds: selectedAddonIds }];
   validateCartItems(next);
   return next;
 }
@@ -119,15 +142,15 @@ export function setCartQuantity(
   return quantity === 0
     ? removeCartItem(items, key)
     : items.map((item) =>
-        cartItemKey(item.productId, item.variantId) === key ? { ...item, quantity } : { ...item },
+        cartItemKey(item.productId, item.variantId, item.addonIds) === key ? { ...copyCartItem(item), quantity } : copyCartItem(item),
       );
 }
 
 export function removeCartItem(items: readonly CartItem[], key: string): readonly CartItem[] {
   validateCartItems(items);
   return items
-    .filter((item) => cartItemKey(item.productId, item.variantId) !== key)
-    .map((item) => ({ ...item }));
+    .filter((item) => cartItemKey(item.productId, item.variantId, item.addonIds) !== key)
+    .map(copyCartItem);
 }
 
 export function resolveCart(
@@ -152,8 +175,8 @@ export function resolveCart(
     if (!product || !variant) {
       issues.push(
         product
-          ? `Выбранный объём «${product.name}» больше недоступен.`
-          : 'Один из напитков больше недоступен.',
+          ? `Выбранный вариант «${product.name}» больше недоступен.`
+          : 'Один из товаров больше недоступен.',
       );
       continue;
     }
@@ -161,15 +184,29 @@ export function resolveCart(
       issues.push(`Не удалось уточнить цену «${product.name}».`);
       continue;
     }
-    const totalKzt = variant.priceKzt * item.quantity;
+    const selectedAddonIds = canonicalAddonIds(item.addonIds);
+    const addons = selectedAddonIds.map((id) => product.addons.find((addon) => addon.id === id));
+    if (addons.some((addon) => !addon) || (product.category === 'dessert' && selectedAddonIds.length)) {
+      issues.push(`Выбранные добавки к «${product.name}» больше недоступны. Уберите позицию и выберите её заново.`);
+      continue;
+    }
+    const availableAddons = addons as Addon[];
+    if (availableAddons.some((addon) => !Number.isSafeInteger(addon.priceKzt) || addon.priceKzt < 0)) {
+      issues.push(`Не удалось уточнить цену добавок к «${product.name}».`);
+      continue;
+    }
+    const unitPriceKzt = availableAddons.reduce((total, addon) => total + addon.priceKzt, variant.priceKzt);
+    const totalKzt = unitPriceKzt * item.quantity;
     if (!Number.isSafeInteger(totalKzt)) {
       issues.push(`Не удалось рассчитать стоимость «${product.name}».`);
       continue;
     }
     lines.push({
-      key: cartItemKey(item.productId, item.variantId),
+      key: cartItemKey(item.productId, item.variantId, item.addonIds),
       product,
       variant,
+      addons: availableAddons,
+      unitPriceKzt,
       quantity: item.quantity,
       totalKzt,
     });
@@ -196,6 +233,7 @@ export function parseStoredCart(value: unknown): CartDraft {
         productId: item.productId,
         variantId: item.variantId,
         quantity: item.quantity,
+        addonIds: canonicalAddonIds(item.addonIds),
       })),
     };
   } catch {

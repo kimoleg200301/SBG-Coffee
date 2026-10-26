@@ -52,7 +52,7 @@ describe('cart business rules', () => {
     assert.equal(resolved.totalKzt, 5300);
     assert.equal(resolved.itemCount, 6);
     const removed = setCartQuantity(withLarge, cartItemKey('latte', 'latte-s'), 0);
-    assert.deepEqual(removed, [{ productId: 'latte', variantId: 'latte-l', quantity: 1 }]);
+    assert.deepEqual(removed, [{ productId: 'latte', variantId: 'latte-l', quantity: 1, addonIds: [] }]);
     assert.deepEqual(removeCartItem(removed, cartItemKey('latte', 'latte-l')), []);
   });
 

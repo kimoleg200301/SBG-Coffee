@@ -2,6 +2,7 @@ import {
   MAX_COMMENT_LENGTH,
   MAX_ITEM_QUANTITY,
   cartItemKey,
+  canonicalAddonIds,
   createEmptyCart,
   parseStoredCart,
   resolveCart,
@@ -10,7 +11,7 @@ import {
 } from '../domain/cart';
 import { OrderCatalogChangedError, type Order, type OrderLine, type OrderStatus } from '../domain/orders';
 import { createGuestProfile, parseStoredProfile, updateGuestProfile } from '../domain/profile';
-import type { ProductImageKey } from '../domain/catalog';
+import type { Addon, ProductImageKey } from '../domain/catalog';
 import type { AppRepositories, CatalogRepository } from './repositories';
 
 export interface KeyValueStorage {
@@ -61,16 +62,33 @@ const imageKeys = new Set<ProductImageKey>([
   'chocolate',
   'pumpkin',
   'lavender',
+  'tea',
+  'dessert',
 ]);
 const statuses = new Set<OrderStatus>(['accepted', 'preparing', 'ready', 'completed', 'cancelled']);
+
+function parseOrderAddons(value: unknown): readonly Addon[] | null {
+  if (value === undefined) return []; // Orders saved before additions existed.
+  if (!Array.isArray(value) || value.length > 20) return null;
+  const addons: Addon[] = [];
+  const ids = new Set<string>();
+  for (const addon of value) {
+    if (!record(addon) || !text(addon.id) || !text(addon.name) || ids.has(addon.id) ||
+      typeof addon.priceKzt !== 'number' || !Number.isSafeInteger(addon.priceKzt) || addon.priceKzt < 0)
+      return null;
+    ids.add(addon.id);
+    addons.push({ id: addon.id, name: addon.name, priceKzt: addon.priceKzt });
+  }
+  return addons.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
 
 function parseOrderLine(value: unknown): OrderLine | null {
   if (
     !record(value) ||
     !text(value.productId) ||
     !text(value.variantId) ||
-    !text(value.name, 150) ||
-    !text(value.variantLabel, 20)
+    !text(value.name, 200) ||
+    !text(value.variantLabel, 40)
   )
     return null;
   if (typeof value.image !== 'string' || !imageKeys.has(value.image as ProductImageKey))
@@ -89,11 +107,15 @@ function parseOrderLine(value: unknown): OrderLine | null {
   )
     return null;
   if (
-    typeof value.volumeMl !== 'number' ||
+    value.volumeMl !== null && (typeof value.volumeMl !== 'number' ||
     !Number.isSafeInteger(value.volumeMl) ||
-    value.volumeMl <= 0
+    value.volumeMl <= 0)
   )
     return null;
+  const addons = parseOrderAddons(value.addons);
+  if (!addons || (value.volumeMl === null && addons.length)) return null;
+  const addonTotal = addons.reduce((sum, addon) => sum + addon.priceKzt, 0);
+  if (!Number.isSafeInteger(addonTotal) || addonTotal > value.unitPriceKzt) return null;
   return {
     productId: value.productId,
     variantId: value.variantId,
@@ -101,6 +123,7 @@ function parseOrderLine(value: unknown): OrderLine | null {
     image: value.image as ProductImageKey,
     variantLabel: value.variantLabel,
     volumeMl: value.volumeMl,
+    addons,
     unitPriceKzt: value.unitPriceKzt,
     quantity: value.quantity,
   };
@@ -124,7 +147,7 @@ function parseOrder(value: unknown): Order | null {
   if (items.some((item) => item === null)) return null;
   const validItems = items as OrderLine[];
   if (
-    new Set(validItems.map((item) => cartItemKey(item.productId, item.variantId))).size !==
+    new Set(validItems.map((item) => cartItemKey(item.productId, item.variantId, item.addons.map((addon) => addon.id)))).size !==
     items.length
   )
     return null;
@@ -220,7 +243,7 @@ export function createLocalCommerceRepositories(
         let items;
         try {
           validateCartItems(input.items);
-          items = input.items.map((item) => ({ ...item }));
+          items = input.items.map((item) => ({ ...item, addonIds: canonicalAddonIds(item.addonIds) }));
         } catch (error) {
           return Promise.reject(error);
         }
@@ -229,7 +252,7 @@ export function createLocalCommerceRepositories(
           const orders = await readOrders(storage);
           const existing = orders.find((order) => order.requestId === requestId);
           if (existing) return existing;
-          if (!items.length) throw new Error('Добавьте напиток в корзину.');
+          if (!items.length) throw new Error('Добавьте товар в корзину.');
           if (typeof comment !== 'string' || comment.length > MAX_COMMENT_LENGTH)
             throw new Error(`Комментарий не должен превышать ${MAX_COMMENT_LENGTH} символов.`);
           const products = await catalog.list();
@@ -253,7 +276,8 @@ export function createLocalCommerceRepositories(
               image: line.product.image,
               variantLabel: line.variant.label,
               volumeMl: line.variant.volumeMl,
-              unitPriceKzt: line.variant.priceKzt,
+              unitPriceKzt: line.unitPriceKzt,
+              addons: line.addons.map((addon) => ({ ...addon })),
               quantity: line.quantity,
             })),
             comment: comment.trim(),

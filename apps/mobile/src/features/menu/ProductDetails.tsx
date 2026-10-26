@@ -1,4 +1,3 @@
-import { Image } from 'expo-image';
 import { Check, Heart, ShoppingBag, X } from 'lucide-react-native';
 import { useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
@@ -8,9 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFavorites } from '@/core/FavoritesProvider';
 import { useCart } from '@/core/CartProvider';
 import { CatalogStatus } from '@/features/catalog/CatalogStatus';
-import { formatPrice, type Product } from '@/domain/catalog';
-import { images } from '@/shared/assets';
-import { AppText, Button, IconButton, QuantityStepper } from '@/shared/ui';
+import { formatPrice, formatVariant, type Product } from '@/domain/catalog';
+import { AppText, Button, IconButton, ProductImage, QuantityStepper } from '@/shared/ui';
 import { colors, fonts } from '@/theme';
 
 interface ProductDetailsProps {
@@ -25,11 +23,15 @@ export function ProductDetails({ product, onClose }: ProductDetailsProps) {
   const router = useRouter();
   const [variantId, setVariantId] = useState(product.variants[0]?.id);
   const [quantity, setQuantity] = useState(1);
+  const [addonIds, setAddonIds] = useState<readonly string[]>([]);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const addingRef = useRef(false);
 
   const variant = product.variants.find((item) => item.id === variantId) ?? product.variants[0];
+  const selectedAddons = product.addons.filter((addon) => addonIds.includes(addon.id));
+  const unitPriceKzt = selectedAddons.reduce((total, addon) => total + addon.priceKzt, variant?.priceKzt ?? 0);
+  const unavailableAddon = selectedAddons.length !== addonIds.length;
   const favorite = isFavorite(product.id);
   const busy = adding || cart.isSaving || cart.isSubmitting;
 
@@ -39,12 +41,12 @@ export function ProductDetails({ product, onClose }: ProductDetailsProps) {
     setAdding(true);
     setError(null);
     try {
-      await cart.addItem(product.id, variant.id, quantity);
+      await cart.addItem(product.id, variant.id, quantity, addonIds);
       onClose();
       router.push('/cart');
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : 'Не удалось добавить напиток. Попробуйте ещё раз.',
+        cause instanceof Error ? cause.message : 'Не удалось добавить товар. Попробуйте ещё раз.',
       );
     } finally {
       addingRef.current = false;
@@ -72,7 +74,7 @@ export function ProductDetails({ product, onClose }: ProductDetailsProps) {
           <View style={styles.header}>
             <IconButton
               icon={X}
-              label="Закрыть карточку напитка"
+              label="Закрыть карточку товара"
               onPress={onClose}
               disabled={adding}
             />
@@ -81,16 +83,15 @@ export function ProductDetails({ product, onClose }: ProductDetailsProps) {
             </AppText>
             <IconButton
               icon={Heart}
-              label={favorite ? 'Убрать напиток из избранного' : 'Добавить напиток в избранное'}
+              label={favorite ? 'Убрать из избранного' : 'Добавить в избранное'}
               selected={favorite}
               onPress={() => toggleFavorite(product.id)}
             />
           </View>
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-            <Image
-              source={images[product.image]}
+            <ProductImage
+              image={product.image}
               style={styles.image}
-              contentFit="cover"
               accessibilityLabel={product.name}
             />
             <View style={styles.description}>
@@ -103,7 +104,7 @@ export function ProductDetails({ product, onClose }: ProductDetailsProps) {
               <AppText style={styles.descriptionText}>{product.description}</AppText>
             </View>
             <View style={styles.variantsSection}>
-              <AppText variant="label">Объём</AppText>
+              <AppText variant="label">{product.category === 'dessert' ? 'Вкус' : 'Объём'}</AppText>
               <View style={styles.variants}>
                 {product.variants.map((item) => {
                   const selected = variant?.id === item.id;
@@ -113,7 +114,7 @@ export function ProductDetails({ product, onClose }: ProductDetailsProps) {
                       accessibilityRole="radio"
                       disabled={busy}
                       accessibilityState={{ checked: selected }}
-                      accessibilityLabel={`${item.label}, ${item.volumeMl} миллилитров, ${formatPrice(item.priceKzt)}`}
+                      accessibilityLabel={`${formatVariant(item.label, item.volumeMl)}, ${formatPrice(item.priceKzt)}`}
                       onPress={() => setVariantId(item.id)}
                       style={({ pressed }) => [
                         styles.variant,
@@ -122,7 +123,7 @@ export function ProductDetails({ product, onClose }: ProductDetailsProps) {
                       ]}
                     >
                       <AppText style={[styles.variantText, selected && styles.variantTextSelected]}>
-                        {item.label} · {item.volumeMl} мл
+                        {formatVariant(item.label, item.volumeMl)}
                       </AppText>
                       {selected ? <Check size={16} color={colors.cream} strokeWidth={1.8} /> : null}
                     </Pressable>
@@ -130,15 +131,46 @@ export function ProductDetails({ product, onClose }: ProductDetailsProps) {
                 })}
               </View>
             </View>
+            {product.addons.length ? (
+              <View style={styles.addonsSection}>
+                <AppText variant="label">Добавки</AppText>
+                <AppText variant="caption">По одной порции каждой на напиток</AppText>
+                {product.addons.map((addon) => {
+                  const selected = addonIds.includes(addon.id);
+                  return (
+                    <Pressable
+                      key={addon.id}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: selected, disabled: busy }}
+                      accessibilityLabel={`${addon.name}, плюс ${formatPrice(addon.priceKzt)}`}
+                      disabled={busy}
+                      onPress={() => setAddonIds((current) => current.includes(addon.id)
+                        ? current.filter((id) => id !== addon.id)
+                        : [...current, addon.id])}
+                      style={({ pressed }) => [styles.addon, selected && styles.addonSelected, pressed && styles.pressed]}
+                    >
+                      <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
+                        {selected ? <Check size={16} color={colors.cream} strokeWidth={2} /> : null}
+                      </View>
+                      <AppText style={styles.addonName}>{addon.name}</AppText>
+                      <AppText variant="label">+{formatPrice(addon.priceKzt)}</AppText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+            {unavailableAddon ? (
+              <AppText accessibilityRole="alert">Выбранная добавка стала недоступна. Закройте карточку и выберите товар заново.</AppText>
+            ) : null}
             <CatalogStatus />
             <View style={styles.priceSection}>
               <View style={styles.quantityRow}>
                 <AppText variant="label">Количество</AppText>
-                <QuantityStepper value={quantity} onChange={setQuantity} disabled={busy} />
+                <QuantityStepper value={quantity} onChange={setQuantity} disabled={busy} label={product.name} />
               </View>
               <AppText variant="caption">Стоимость</AppText>
               <AppText style={styles.price}>
-                {variant ? formatPrice(variant.priceKzt * quantity) : 'Уточните у бариста'}
+                {variant ? formatPrice(unitPriceKzt * quantity) : 'Уточните у бариста'}
               </AppText>
             </View>
             {error || cart.error ? (
@@ -148,7 +180,7 @@ export function ProductDetails({ product, onClose }: ProductDetailsProps) {
               label={adding ? 'Добавляем…' : 'Добавить в заказ'}
               icon={ShoppingBag}
               loading={adding}
-              disabled={busy || !cart.isReady || !variant}
+              disabled={busy || !cart.isReady || !variant || unavailableAddon}
               onPress={() => void addToCart()}
             />
             <AppText variant="caption" style={styles.orderHint}>
@@ -199,6 +231,12 @@ const styles = StyleSheet.create({
   variantSelected: { backgroundColor: colors.green },
   variantText: { fontSize: 13, lineHeight: 18, fontFamily: fonts.semibold },
   variantTextSelected: { color: colors.cream },
+  addonsSection: { gap: 10 },
+  addon: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48, padding: 12, borderRadius: 14, backgroundColor: colors.subtle },
+  addonSelected: { backgroundColor: colors.sage },
+  addonName: { flex: 1, fontSize: 13 },
+  checkbox: { width: 22, height: 22, borderWidth: 1, borderColor: colors.green, borderRadius: 5, alignItems: 'center', justifyContent: 'center' },
+  checkboxSelected: { backgroundColor: colors.green },
   priceSection: { gap: 4, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 24 },
   quantityRow: {
     flexDirection: 'row',

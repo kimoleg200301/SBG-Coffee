@@ -60,3 +60,57 @@ export type CatalogResponseDto = z.infer<typeof catalogResponseSchema>;
 export type CatalogRequestQueryDto = z.infer<typeof catalogRequestQuerySchema>;
 export type ApiErrorDto = z.infer<typeof apiErrorSchema>;
 export type HealthResponseDto = z.infer<typeof healthResponseSchema>;
+
+// v1 remains frozen for installed clients. Unit goods and additions are a v2 contract.
+export const addonSchema = z.object({
+  id: identifier,
+  name: z.string().min(1).max(200),
+  priceKzt: z.number().int().min(0).max(100_000_000),
+});
+export const categoryV2Schema = z.enum(['coffee', 'tea', 'seasonal', 'dessert']);
+export const productImageKeyV2Schema = z.enum([
+  'americano', 'cappuccino', 'latte', 'chocolate', 'pumpkin', 'lavender', 'tea', 'dessert',
+]);
+export const productVariantV2Schema = productVariantSchema.extend({
+  volumeMl: z.number().int().positive().max(10_000).nullable(),
+});
+export const productV2Schema = productSchema.extend({
+  category: categoryV2Schema,
+  image: productImageKeyV2Schema,
+  variants: z.array(productVariantV2Schema).min(1).max(50),
+  // Each listed addition can be selected at most once per unit of this product.
+  addons: z.array(addonSchema).max(20),
+}).superRefine((product, context) => {
+  for (const [index, variant] of product.variants.entries()) {
+    if ((product.category === 'dessert') !== (variant.volumeMl === null)) {
+      context.addIssue({ code: 'custom', path: ['variants', index, 'volumeMl'], message: 'Drinks require a volume; desserts use null' });
+    }
+  }
+  if (product.category === 'dessert' && product.addons.length) {
+    context.addIssue({ code: 'custom', path: ['addons'], message: 'Additions are only available for drinks' });
+  }
+  const addonIds = new Set<string>();
+  for (const [index, addon] of product.addons.entries()) {
+    if (addonIds.has(addon.id)) context.addIssue({ code: 'custom', path: ['addons', index, 'id'], message: 'Duplicate addition ID' });
+    addonIds.add(addon.id);
+  }
+});
+export const catalogV2ResponseSchema = z.object({
+  products: z.array(productV2Schema).max(10_000),
+  fetchedAt: z.iso.datetime(),
+}).superRefine((catalog, context) => {
+  const productIds = new Set<string>();
+  const variantIds = new Set<string>();
+  for (const [index, product] of catalog.products.entries()) {
+    if (productIds.has(product.id)) context.addIssue({ code: 'custom', path: ['products', index, 'id'], message: 'Duplicate product ID' });
+    productIds.add(product.id);
+    for (const [variantIndex, variant] of product.variants.entries()) {
+      if (variantIds.has(variant.id)) context.addIssue({ code: 'custom', path: ['products', index, 'variants', variantIndex, 'id'], message: 'Duplicate variant ID' });
+      variantIds.add(variant.id);
+    }
+  }
+});
+export type AddonDto = z.infer<typeof addonSchema>;
+export type ProductVariantV2Dto = z.infer<typeof productVariantV2Schema>;
+export type ProductV2Dto = z.infer<typeof productV2Schema>;
+export type CatalogV2ResponseDto = z.infer<typeof catalogV2ResponseSchema>;

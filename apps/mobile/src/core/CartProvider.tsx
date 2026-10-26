@@ -11,6 +11,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import {
   addCartItem,
+  canonicalAddonIds,
   createEmptyCart,
   removeCartItem,
   resolveCart,
@@ -19,7 +20,7 @@ import {
   type CartDraft,
   type ResolvedCartLine,
 } from '@/domain/cart';
-import { OrderCatalogChangedError, type Order } from '@/domain/orders';
+import { cartItemsFromOrder, OrderCatalogChangedError, type Order } from '@/domain/orders';
 import { catalogQueryKey } from '@/features/catalog/catalogQuery';
 import { useCatalog } from '@/features/catalog/useCatalog';
 import { useRepositories } from './RepositoriesProvider';
@@ -35,7 +36,7 @@ interface CartContextValue {
   isSaving: boolean;
   error: string | null;
   retryLoad: () => Promise<void>;
-  addItem: (productId: string, variantId: string, quantity?: number) => Promise<void>;
+  addItem: (productId: string, variantId: string, quantity?: number, addonIds?: readonly string[]) => Promise<void>;
   setQuantity: (key: string, quantity: number) => Promise<void>;
   removeItem: (key: string) => Promise<void>;
   setComment: (comment: string) => Promise<void>;
@@ -142,14 +143,17 @@ export function CartProvider({ children }: PropsWithChildren) {
   );
 
   const addItem = useCallback(
-    async (productId: string, variantId: string, quantity = 1) => {
+    async (productId: string, variantId: string, quantity = 1, addonIds: readonly string[] = []) => {
       const product = catalog.data?.find((item) => item.id === productId);
       if (!product?.variants.some((variant) => variant.id === variantId))
-        throw new Error('Этот напиток пока недоступен. Обновите меню.');
+        throw new Error('Этот товар пока недоступен. Обновите меню.');
+      const selectedAddonIds = canonicalAddonIds(addonIds);
+      const selected = resolveCart([{ productId, variantId, quantity, addonIds: selectedAddonIds }], [product]);
+      if (selected.issues.length) throw new Error(selected.issues.join(' '));
       await mutate((current) => ({
         ...current,
         id: createEmptyCart().id,
-        items: addCartItem(current.items, productId, variantId, quantity),
+        items: addCartItem(current.items, productId, variantId, quantity, selectedAddonIds),
       }));
     },
     [catalog.data, mutate],
@@ -187,14 +191,10 @@ export function CartProvider({ children }: PropsWithChildren) {
 
   const replaceFromOrder = useCallback(
     async (order: Order) => {
-      const items = order.items.map(({ productId, variantId, quantity }) => ({
-        productId,
-        variantId,
-        quantity,
-      }));
+      const items = cartItemsFromOrder(order);
       const current = resolveCart(items, catalog.data ?? []);
       if (current.issues.length)
-        throw new Error('Часть напитков больше недоступна. Выберите напитки из текущего меню.');
+        throw new Error('Часть товаров или добавок больше недоступна. Выберите их из текущего меню.');
       await mutate(() => ({ ...createEmptyCart(), items, comment: order.comment }));
     },
     [catalog.data, mutate],
@@ -215,7 +215,7 @@ export function CartProvider({ children }: PropsWithChildren) {
       const snapshot = draftRef.current;
       const current = resolveCart(snapshot.items, catalog.data ?? []);
       if (!current.lines.length || current.issues.length)
-        throw new Error('Проверьте состав заказа: добавьте доступные напитки из меню.');
+        throw new Error('Проверьте состав заказа: добавьте доступные товары из меню.');
       await repositories.cart.save(snapshot);
       const order = await repositories.orders.create({
         requestId: snapshot.id,

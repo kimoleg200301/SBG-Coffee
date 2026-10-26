@@ -1,16 +1,15 @@
-import { Image } from 'expo-image';
 import { StyleSheet, View } from 'react-native';
 
-import { formatPrice, type ProductImageKey } from '@/domain/catalog';
-import { images } from '@/shared/assets';
-import { AppText } from '@/shared/ui';
+import { formatPrice, formatVariant, type Addon, type ProductImageKey } from '@/domain/catalog';
+import { AppText, ProductImage } from '@/shared/ui';
 import { fonts } from '@/theme';
 
 interface OrderLineSummaryProps {
   name: string;
   image: ProductImageKey;
   variantLabel: string;
-  volumeMl: number;
+  volumeMl: number | null;
+  addons: readonly Addon[];
   unitPriceKzt: number;
   quantity: number;
 }
@@ -20,25 +19,28 @@ export function OrderLineSummary({
   image,
   variantLabel,
   volumeMl,
+  addons,
   unitPriceKzt,
   quantity,
 }: OrderLineSummaryProps) {
   return (
     <View style={styles.row}>
-      <Image
-        source={images[image]}
+      <ProductImage
+        image={image}
         style={styles.image}
-        contentFit="cover"
         accessibilityLabel={name}
       />
       <View style={styles.copy}>
         <AppText style={styles.name}>{name}</AppText>
         <AppText variant="caption">
-          {variantLabel} · {volumeMl} мл · {quantity} шт.
+          {formatVariant(variantLabel, volumeMl)} · {quantity} шт.
         </AppText>
+        {addons.map((addon) => (
+          <AppText key={addon.id} variant="caption">{addon.name} +{formatPrice(addon.priceKzt)}</AppText>
+        ))}
         <AppText style={styles.price}>{formatPrice(unitPriceKzt * quantity)}</AppText>
         {quantity > 1 ? (
-          <AppText variant="caption">{formatPrice(unitPriceKzt)} за напиток</AppText>
+          <AppText variant="caption">{formatPrice(unitPriceKzt)} за шт.</AppText>
         ) : null}
       </View>
     </View>

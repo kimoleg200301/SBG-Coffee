@@ -13,6 +13,7 @@ const catalogFixture: readonly Product[] = Object.freeze(
         description: 'Эспрессо и горячая вода. Чистый вкус любимого кофе.',
         category: 'coffee',
         image: 'americano',
+        addons: [],
         variants: [
           { id: 'americano-s', label: 'S', volumeMl: 250, priceKzt: 600 },
           { id: 'americano-l', label: 'L', volumeMl: 400, priceKzt: 800 },
@@ -24,6 +25,7 @@ const catalogFixture: readonly Product[] = Object.freeze(
         description: 'Эспрессо, молоко и нежная молочная пенка.',
         category: 'coffee',
         image: 'cappuccino',
+        addons: [],
         variants: [
           { id: 'cappuccino-s', label: 'S', volumeMl: 250, priceKzt: 800 },
           { id: 'cappuccino-l', label: 'L', volumeMl: 400, priceKzt: 1300 },
@@ -35,6 +37,7 @@ const catalogFixture: readonly Product[] = Object.freeze(
         description: 'Мягкое сочетание эспрессо и тёплого молока.',
         category: 'coffee',
         image: 'latte',
+        addons: [],
         variants: [
           { id: 'latte-s', label: 'S', volumeMl: 250, priceKzt: 800 },
           { id: 'latte-l', label: 'L', volumeMl: 400, priceKzt: 1300 },
@@ -46,6 +49,7 @@ const catalogFixture: readonly Product[] = Object.freeze(
         description: 'Насыщенный шоколадный напиток с молоком.',
         category: 'coffee',
         image: 'chocolate',
+        addons: [],
         variants: [
           { id: 'chocolate-s', label: 'S', volumeMl: 250, priceKzt: 800 },
           { id: 'chocolate-l', label: 'L', volumeMl: 400, priceKzt: 1200 },
@@ -58,6 +62,7 @@ const catalogFixture: readonly Product[] = Object.freeze(
         category: 'seasonal',
         image: 'pumpkin',
         tag: 'Осенний вкус',
+        addons: [],
         variants: [{ id: 'pumpkin-s', label: 'S', volumeMl: 250, priceKzt: 1000 }],
       },
       {
@@ -67,12 +72,14 @@ const catalogFixture: readonly Product[] = Object.freeze(
         category: 'seasonal',
         image: 'lavender',
         tag: 'Сезонное',
+        addons: [],
         variants: [{ id: 'lavender-s', label: 'S', volumeMl: 250, priceKzt: 1000 }],
       },
     ] satisfies Product[]
   ).map((product) =>
     Object.freeze({
       ...product,
+      addons: Object.freeze(product.addons),
       variants: Object.freeze(product.variants.map((variant) => Object.freeze(variant))),
     }),
   ),
@@ -103,6 +110,7 @@ export function createMockRepositories(): AppRepositories {
     async list() {
       return catalogFixture.map((product) => ({
         ...product,
+        addons: product.addons.map((addon) => ({ ...addon })),
         variants: product.variants.map((variant) => ({ ...variant })),
       }));
     },

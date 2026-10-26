@@ -19,8 +19,8 @@ export async function createApp(config: ApiConfig, silent = false) {
   app.enableShutdownHooks();
   const document = SwaggerModule.createDocument(app, new DocumentBuilder()
     .setTitle('SBG Coffee catalog API')
-    .setDescription('Public catalog v1. Prices are current at fetchedAt; future order APIs must validate them on the server. Profile, orders and loyalty remain demo data in the app.')
-    .setVersion('1.0.0')
+    .setDescription('Public catalogs v1 (drinks) and v2 (drinks, desserts and additions). Prices are current at fetchedAt; future order APIs must validate them on the server. Profile, orders and loyalty remain demo data in the app.')
+    .setVersion('2.0.0')
     .build());
   SwaggerModule.setup('docs', app, document, { jsonDocumentUrl: 'docs-json' });
   return app;

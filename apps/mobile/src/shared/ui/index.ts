@@ -6,3 +6,4 @@ export { ScreenHeader } from './ScreenHeader';
 export { EmptyState } from './EmptyState';
 export { Sheet } from './Sheet';
 export { QuantityStepper } from './QuantityStepper';
+export { ProductImage } from './ProductImage';

@@ -76,7 +76,7 @@ test('unreachable PostgreSQL returns readiness/catalog 503 without leaking crede
   try {
     await app.listen(0, '127.0.0.1');
     const base = await app.getUrl();
-    for (const path of ['/health', '/api/v1/catalog/products']) {
+    for (const path of ['/health', '/api/v1/catalog/products', '/api/v2/catalog/products']) {
       const response = await fetch(`${base}${path}`);
       assert.equal(response.status, 503);
       const body = await response.text();

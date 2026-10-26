@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { cartItemKey } from '@/domain/cart';
 import { formatPrice } from '@/domain/catalog';
 import type { Order } from '@/domain/orders';
 import { AppText, Button, EmptyState, Screen, Sheet } from '@/shared/ui';
@@ -101,10 +102,10 @@ export function OrderDetailScreen() {
             <OrderProgress status={order.status} />
             <View style={styles.items}>
               <AppText style={styles.sectionTitle}>
-                {order.items.length === 1 ? 'Ваш напиток' : 'Ваши напитки'}
+                Состав заказа
               </AppText>
               {order.items.map((item) => (
-                <OrderLineSummary key={`${item.productId}:${item.variantId}`} {...item} />
+                <OrderLineSummary key={cartItemKey(item.productId, item.variantId, item.addons.map((addon) => addon.id))} {...item} />
               ))}
             </View>
             <View style={styles.metadata}>

@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Image } from 'expo-image';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import {
   ArrowLeft,
@@ -12,10 +11,10 @@ import {
 } from 'lucide-react-native';
 
 import { useCart } from '@/core/CartProvider';
-import { formatPrice } from '@/domain/catalog';
+import { cartItemKey } from '@/domain/cart';
+import { formatPrice, formatVariant } from '@/domain/catalog';
 import { isActiveOrder, ORDER_STATUS_LABELS, type Order } from '@/domain/orders';
-import { images } from '@/shared/assets';
-import { AppText, Button, EmptyState, IconButton, Screen, Sheet } from '@/shared/ui';
+import { AppText, Button, EmptyState, IconButton, ProductImage, Screen, Sheet } from '@/shared/ui';
 import { colors, fonts } from '@/theme';
 import { useOrders } from './useOrders';
 
@@ -198,18 +197,20 @@ export function OrderHistoryScreen() {
                     {dateFormatter.format(new Date(order.createdAt))}
                   </AppText>
                   {order.items.map((item) => (
-                    <View key={`${item.productId}:${item.variantId}`} style={styles.orderLine}>
-                      <Image
-                        source={images[item.image]}
+                    <View key={cartItemKey(item.productId, item.variantId, item.addons.map((addon) => addon.id))} style={styles.orderLine}>
+                      <ProductImage
+                        image={item.image}
                         style={styles.drinkImage}
-                        contentFit="cover"
                         accessibilityLabel={item.name}
                       />
                       <View style={styles.drinkCopy}>
                         <AppText variant="label">{item.name}</AppText>
                         <AppText style={styles.orderDate}>
-                          {item.variantLabel} · {item.volumeMl} мл · {item.quantity} шт.
+                          {formatVariant(item.variantLabel, item.volumeMl)} · {item.quantity} шт.
                         </AppText>
+                        {item.addons.map((addon) => (
+                          <AppText key={addon.id} style={styles.orderDate}>{addon.name} +{formatPrice(addon.priceKzt)}</AppText>
+                        ))}
                         <AppText style={styles.linePrice}>
                           {formatPrice(item.unitPriceKzt * item.quantity)}
                         </AppText>
@@ -272,7 +273,7 @@ export function OrderHistoryScreen() {
         title="Заменить корзину?"
       >
         <AppText>
-          В корзине уже есть напитки. Заменить их составом заказа №{repeatCandidate?.number}?
+          В корзине уже есть товары. Заменить их составом заказа №{repeatCandidate?.number}?
         </AppText>
         <AppText variant="caption">
           Это подготовит новую корзину. Заказ появится только после вашего подтверждения.

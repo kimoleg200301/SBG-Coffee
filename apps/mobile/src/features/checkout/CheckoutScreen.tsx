@@ -125,7 +125,7 @@ export function CheckoutScreen() {
           <AppText variant="title" accessibilityRole="header">
             Подтвердите заказ
           </AppText>
-          <AppText style={styles.muted}>Всё верно? Проверьте напитки и количество.</AppText>
+          <AppText style={styles.muted}>Всё верно? Проверьте состав и количество.</AppText>
         </View>
         <CatalogStatus />
         {!cart.isReady ? (
@@ -150,7 +150,7 @@ export function CheckoutScreen() {
           )
         ) : !cart.lines.length && !cart.issues.length && !submitting ? (
           <EmptyState
-            title="В заказе пока нет напитков"
+            title="В заказе пока ничего нет"
             description="Добавьте любимый кофе в корзину и возвращайтесь к оформлению."
             action={
               <Button

@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useCart } from '@/core/CartProvider';
 import { CatalogStatus } from '@/features/catalog/CatalogStatus';
+import { cartItemKey } from '@/domain/cart';
 import { formatPrice } from '@/domain/catalog';
 import { OrderScreenHeader } from '@/features/orders/components/OrderScreenHeader';
 import { AppText, Button, EmptyState, Screen, Sheet } from '@/shared/ui';
@@ -22,6 +23,9 @@ export function CartScreen() {
   const [showClear, setShowClear] = useState(false);
   const busy = cart.isSubmitting || cart.isSaving || changing;
   const error = actionError || cart.error;
+  const unavailableItems = cart.draft.items.filter((item) =>
+    !cart.lines.some((line) => line.key === cartItemKey(item.productId, item.variantId, item.addonIds)),
+  );
   const openMenu = () =>
     router.dismissTo({ pathname: '/menu', params: { favorites: '0', q: '' } });
 
@@ -97,6 +101,18 @@ export function CartScreen() {
                     {issue}
                   </AppText>
                 ))}
+                {unavailableItems.map((item, index) => {
+                  const key = cartItemKey(item.productId, item.variantId, item.addonIds);
+                  return (
+                    <Button
+                      key={key}
+                      label={`Убрать недоступную позицию ${index + 1}`}
+                      variant="secondary"
+                      disabled={busy}
+                      onPress={() => void change(() => cart.removeItem(key))}
+                    />
+                  );
+                })}
                 <Button
                   label="Очистить корзину"
                   variant="secondary"
@@ -121,7 +137,7 @@ export function CartScreen() {
                   ))}
                 </View>
                 <Button
-                  label="Добавить ещё напиток"
+                  label="Добавить ещё"
                   icon={ShoppingBag}
                   variant="secondary"
                   disabled={busy}
@@ -144,7 +160,7 @@ export function CartScreen() {
             ) : !cart.issues.length ? (
               <EmptyState
                 title="Начнём с любимого кофе?"
-                description="Пока здесь пусто. Выберите напиток в меню — мы сохраним его в корзине."
+                description="Пока здесь пусто. Выберите товар в меню — мы сохраним его в корзине."
                 action={
                   <Button
                     label="Выбрать свой кофе"
@@ -165,7 +181,7 @@ export function CartScreen() {
         title="Очистить корзину?"
       >
         <AppText>
-          Все напитки и комментарий будут удалены из корзины. Созданные заказы сохранятся.
+          Все позиции и комментарий будут удалены из корзины. Созданные заказы сохранятся.
         </AppText>
         {error ? (
           <AppText accessibilityRole="alert" style={styles.notice}>
@@ -183,7 +199,7 @@ export function CartScreen() {
           }
         />
         <Button
-          label="Оставить напитки"
+          label="Оставить корзину"
           variant="secondary"
           disabled={busy}
           onPress={() => setShowClear(false)}

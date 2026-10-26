@@ -1,5 +1,5 @@
-import type { CartItem } from './cart';
-import type { Product, ProductImageKey } from './catalog';
+import { canonicalAddonIds, type CartItem } from './cart';
+import type { Addon, Product, ProductImageKey } from './catalog';
 
 /** Carries live prices so checkout can show changes before a second confirmation. */
 export class OrderCatalogChangedError extends Error {
@@ -17,7 +17,8 @@ export interface OrderLine {
   readonly name: string;
   readonly image: ProductImageKey;
   readonly variantLabel: string;
-  readonly volumeMl: number;
+  readonly volumeMl: number | null;
+  readonly addons: readonly Addon[];
   readonly unitPriceKzt: number;
   readonly quantity: number;
 }
@@ -53,4 +54,14 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 
 export function isActiveOrder(order: Order): boolean {
   return order.status === 'accepted' || order.status === 'preparing' || order.status === 'ready';
+}
+
+/** Repeat selections, never historical prices: resolve against the current catalogue. */
+export function cartItemsFromOrder(order: Pick<Order, 'items'>): readonly CartItem[] {
+  return order.items.map((item) => ({
+    productId: item.productId,
+    variantId: item.variantId,
+    quantity: item.quantity,
+    addonIds: canonicalAddonIds(item.addons.map((addon) => addon.id)),
+  }));
 }
